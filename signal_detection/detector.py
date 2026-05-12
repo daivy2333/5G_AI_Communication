@@ -4,7 +4,7 @@ AI信号检测与调制识别模块 - 信号检测器
 """
 
 import numpy as np
-from typing import Tuple, Optional, Dict, List, Any, TYPE_CHECKING
+from typing import Tuple, Optional, Dict, List, TYPE_CHECKING
 import sys
 import os
 

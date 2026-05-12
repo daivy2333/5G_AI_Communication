@@ -5,7 +5,6 @@ AI信道估计模块 - 训练器
 """
 
 import numpy as np
-import matplotlib.pyplot as plt
 from typing import Tuple, Optional, Dict, List
 from pathlib import Path
 import time
@@ -116,14 +115,6 @@ class ChannelEstimationTrainer:
             'snr': val_dataset['snr_db'],
             'baselines': val_baselines
         }
-
-        # 准备PyTorch张量
-        train_data['received_tensor'] = torch.from_numpy(train_data['received']).float()
-        train_data['pilot_tensor'] = torch.from_numpy(train_data['pilot']).float()
-        train_data['labels_tensor'] = torch.from_numpy(train_data['labels']).float()
-        val_data['received_tensor'] = torch.from_numpy(val_data['received']).float()
-        val_data['pilot_tensor'] = torch.from_numpy(val_data['pilot']).float()
-        val_data['labels_tensor'] = torch.from_numpy(val_data['labels']).float()
 
         print(f"训练样本数: {len(train_labels)}")
         print(f"验证样本数: {len(val_labels)}")
@@ -239,14 +230,15 @@ class ChannelEstimationTrainer:
                 val_output = self.model(X_val_dev)
                 val_loss = criterion(val_output, y_val_dev).item()
 
-                train_output = self.model(X_train.to(self.device))
-                train_mse = self.compute_mse(
-                    y_train.cpu().numpy(),
-                    train_output.cpu().numpy()
-                )
                 val_mse = self.compute_mse(
                     y_val.cpu().numpy(),
                     val_output.cpu().numpy()
+                )
+                subset_size = min(512, X_train.shape[0])
+                train_output = self.model(X_train[:subset_size].to(self.device))
+                train_mse = self.compute_mse(
+                    y_train[:subset_size].cpu().numpy(),
+                    train_output.cpu().numpy()
                 )
 
             self.train_history['loss'].append(train_loss)
@@ -271,7 +263,7 @@ class ChannelEstimationTrainer:
                     print(f"\n早停触发！连续{patience}个epoch未改善")
                     break
 
-        if hasattr(self, 'best_state_dict'):
+        if self.best_state_dict is not None:
             self.model.load_state_dict(self.best_state_dict)
 
         print(f"\n训练完成！最佳验证损失: {best_val_loss:.6f}")
@@ -393,137 +385,6 @@ class ChannelEstimationTrainer:
 
         return snr_results
 
-    def plot_training_history(self):
-        """绘制训练历史曲线"""
-        fig, axes = plt.subplots(1, 2, figsize=(14, 5))
-
-        # 损失曲线
-        axes[0].plot(self.train_history['loss'], label='训练损失')
-        axes[0].plot(self.train_history['val_loss'], label='验证损失')
-        axes[0].set_xlabel('Epoch')
-        axes[0].set_ylabel('Loss')
-        axes[0].set_title('训练损失曲线')
-        axes[0].legend()
-        axes[0].grid(True, alpha=0.3)
-
-        # MSE曲线
-        axes[1].plot(self.train_history['mse'], label='训练MSE')
-        axes[1].plot(self.train_history['val_mse'], label='验证MSE')
-        axes[1].set_xlabel('Epoch')
-        axes[1].set_ylabel('MSE')
-        axes[1].set_title('均方误差曲线')
-        axes[1].legend()
-        axes[1].grid(True, alpha=0.3)
-
-        plt.tight_layout()
-        plt.savefig(self.results_dir / 'training_history.png', dpi=150)
-        plt.close()
-        print(f"\n训练历史曲线已保存至: {self.results_dir / 'training_history.png'}")
-
-    def plot_performance_comparison(self, test_data: dict):
-        """
-        绘制性能对比图
-
-        Args:
-            test_data: 测试数据字典
-        """
-        results = self.evaluate_by_snr(test_data)
-
-        # 提取各SNR区间的NMSE
-        snr_labels = list(results.keys())
-        algorithms = ['AI-ChannelNet', 'LS', 'MMSE', 'LMMSE']
-        colors = ['#2196F3', '#FF5722', '#4CAF50', '#9C27B0']
-
-        fig, ax = plt.subplots(figsize=(12, 6))
-
-        x = np.arange(len(snr_labels))
-        width = 0.2
-
-        for i, algo in enumerate(algorithms):
-            values = [results[snr].get(algo, float('inf')) for snr in snr_labels]
-            bars = ax.bar(x + i * width, values, width, label=algo, color=colors[i])
-
-            # 添加数值标签
-            for bar, val in zip(bars, values):
-                if val < float('inf'):
-                    ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.5,
-                           f'{val:.1f}', ha='center', va='bottom', fontsize=8)
-
-        ax.set_xlabel('SNR范围 (dB)')
-        ax.set_ylabel('NMSE (dB)')
-        ax.set_title('AI-ChannelNet与传统算法性能对比')
-        ax.set_xticks(x + width * 1.5)
-        ax.set_xticklabels(snr_labels)
-        ax.legend()
-        ax.grid(True, alpha=0.3, axis='y')
-
-        plt.tight_layout()
-        plt.savefig(self.results_dir / 'performance_comparison.png', dpi=150)
-        plt.close()
-        print(f"性能对比图已保存至: {self.results_dir / 'performance_comparison.png'}")
-
-    def plot_channel_visualization(self, data: dict, num_examples: int = 3):
-        """
-        绘制信道估计可视化对比
-
-        Args:
-            data: 测试数据字典
-            num_examples: 示例数量
-        """
-        X = self._prepare_pytorch_input(data)
-        y_true = data['labels']
-
-        # AI预测
-        self.model.eval()
-        with torch.no_grad():
-            X_dev = X.to(self.device)
-            ai_pred = self.model(X_dev).cpu().numpy()
-
-        if self.model_type in ['transformer', 'hybrid']:
-            ai_pred_complex = ai_pred[:, :, 0] + 1j * ai_pred[:, :, 1]
-        elif self.model_type == 'cnn':
-            ai_pred_complex = ai_pred[:, 0, :] + 1j * ai_pred[:, 1, :]
-        else:
-            labels_shape = y_true.shape[1]
-            ai_pred_complex = ai_pred[:, :labels_shape] + 1j * ai_pred[:, labels_shape:]
-
-        # LS基准
-        ls_pred = data.get('baselines', {}).get('LS', data['labels'])  # 如果没有LS，使用真实值作为fallback
-
-        num_examples = min(num_examples, len(y_true))
-
-        fig, axes = plt.subplots(num_examples, 3, figsize=(15, 4 * num_examples))
-
-        if num_examples == 1:
-            axes = axes.reshape(1, -1)
-
-        for i in range(num_examples):
-            # 真实信道
-            axes[i, 0].stem(np.abs(y_true[i]), linefmt='b-', markerfmt='bo', basefmt='r-')
-            axes[i, 0].set_title(f'示例{i+1}: 真实信道')
-            axes[i, 0].set_ylabel('幅度')
-            axes[i, 0].grid(True, alpha=0.3)
-
-            # AI估计
-            axes[i, 1].stem(np.abs(ai_pred_complex[i]), linefmt='g-', markerfmt='go', basefmt='r-')
-            axes[i, 1].set_title('AI-ChannelNet估计')
-            axes[i, 1].grid(True, alpha=0.3)
-
-            # LS估计
-            axes[i, 2].stem(np.abs(ls_pred[i]), linefmt='r-', markerfmt='ro', basefmt='r-')
-            axes[i, 2].set_title('LS估计')
-            axes[i, 2].grid(True, alpha=0.3)
-
-            if i == 0:
-                axes[i, 0].set_title(f'示例{i+1}: 真实信道')
-                axes[i, 1].set_title('AI-ChannelNet估计')
-                axes[i, 2].set_title('LS估计')
-
-        plt.tight_layout()
-        plt.savefig(self.results_dir / 'channel_visualization.png', dpi=150)
-        plt.close()
-        print(f"信道可视化图已保存至: {self.results_dir / 'channel_visualization.png'}")
-
     def save_model(self, filepath: str = 'channel_estimation_model'):
         """
         保存模型
@@ -544,20 +405,26 @@ class ChannelEstimationTrainer:
 
         print(f"模型已保存至: {torch_path}")
 
-    def load_model(self, filepath: str = 'channel_estimation_model.pth'):
+    def load_model(self, filepath: str = 'channel_estimation_model'):
         """
         加载模型
 
         Args:
-            filepath: 模型路径
+            filepath: 模型路径（不含扩展名）
         """
-        torch_path = str(self.results_dir / filepath) if not str(filepath).endswith('.pth') else str(filepath)
+        if str(filepath).endswith('.pth'):
+            torch_path = str(filepath)
+        else:
+            torch_path = str(self.results_dir / f"{filepath}.pth")
         self._load_pytorch_model(torch_path)
         print(f"模型已加载: {torch_path}")
 
     def _load_pytorch_model(self, filepath: str):
         """加载PyTorch模型"""
-        checkpoint = torch.load(filepath, map_location=self.device)
+        try:
+            checkpoint = torch.load(filepath, map_location=self.device)
+        except (FileNotFoundError, RuntimeError) as e:
+            raise RuntimeError(f"模型文件加载失败: {filepath} - {e}")
         self.model_type = checkpoint['model_type']
         self.config = checkpoint.get('config', {})
 
@@ -620,11 +487,6 @@ class ChannelEstimationTrainer:
             print(f"\n{snr_range}:")
             for algo, nmse in results.items():
                 print(f"  {algo:15s}: {nmse:8.2f} dB")
-
-        print("\n生成可视化图表...")
-        self.plot_training_history()
-        self.plot_performance_comparison(test_data)
-        self.plot_channel_visualization(test_data)
 
         self.save_model()
 

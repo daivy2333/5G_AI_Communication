@@ -84,8 +84,7 @@ def check_gpu():
         return False
 
 
-def run_channel_estimation_demo(num_samples: int, epochs: int, snr: float, 
-                                 visualize: bool, use_gpu: bool):
+def run_channel_estimation_demo(num_samples: int, epochs: int, snr: float, use_gpu: bool):
     """
     运行信道估计演示
     
@@ -93,7 +92,6 @@ def run_channel_estimation_demo(num_samples: int, epochs: int, snr: float,
         num_samples: 样本数量
         epochs: 训练轮数
         snr: 信噪比
-        visualize: 是否生成可视化
         use_gpu: 是否使用GPU
     """
     print("\n" + "=" * 60)
@@ -130,11 +128,7 @@ def run_channel_estimation_demo(num_samples: int, epochs: int, snr: float,
         print("-" * 40)
         for algo, nmse in results.items():
             improvement = nmse - results.get('LS', 0)
-            print(f"{algo:15s}: NMSE = {nmse:.2f} dB")
-        
-        if visualize:
-            trainer.plot_training_history()
-            trainer.plot_performance_comparison(trainer.test_data)
+            print(f"{algo:15s}: NMSE = {nmse:.2f} dB (vs LS: {improvement:+.2f} dB)")
         
         return results
     except Exception as e:
@@ -142,13 +136,12 @@ def run_channel_estimation_demo(num_samples: int, epochs: int, snr: float,
         return None
 
 
-def run_signal_detection_demo(num_samples: int, visualize: bool, use_gpu: bool):
+def run_signal_detection_demo(num_samples: int, use_gpu: bool):
     """
     运行信号检测演示
     
     Args:
         num_samples: 样本数量
-        visualize: 是否生成可视化
         use_gpu: 是否使用GPU
     """
     print("\n" + "=" * 60)
@@ -184,27 +177,18 @@ def run_signal_detection_demo(num_samples: int, visualize: bool, use_gpu: bool):
         print(f"召回率: {results['recall']:.4f}")
         print(f"F1分数: {results['f1_score']:.4f}")
         
-        if visualize:
-            # 保存混淆矩阵信息
-            results_dir = Path('results/signal_detection')
-            cm_file = results_dir / 'confusion_matrix.json'
-            with open(cm_file, 'w') as f:
-                json.dump(results['confusion_matrix'], f, indent=2)
-            print(f"混淆矩阵已保存至: {cm_file}")
-        
         return results
     except Exception as e:
         print(f"训练过程中出错: {e}")
         return None
 
 
-def run_resource_scheduling_demo(num_timesteps: int, visualize: bool, use_gpu: bool):
+def run_resource_scheduling_demo(num_timesteps: int, use_gpu: bool):
     """
     运行资源调度演示
     
     Args:
         num_timesteps: 训练步数
-        visualize: 是否生成可视化
         use_gpu: 是否使用GPU
     """
     print("\n" + "=" * 60)
@@ -244,32 +228,39 @@ def run_resource_scheduling_demo(num_timesteps: int, visualize: bool, use_gpu: b
         
         # 统计结果
         stats = scheduler.training_stats
-        avg_reward = np.mean(stats['episode_rewards']) if stats['episode_rewards'] else 0
-        avg_throughput = np.mean(stats['throughputs']) if stats['throughputs'] else 0
+        avg_reward = float(np.mean(stats['episode_rewards'])) if stats['episode_rewards'] else 0.0
+        avg_throughput = float(np.mean(stats['throughputs'])) if stats['throughputs'] else 0.0
         
         results = {
             'algorithm': 'PPO',
             'avg_reward': avg_reward,
             'avg_throughput': avg_throughput,
-            'episodes': len(stats['episode_rewards'])
+            'avg_throughput_kbps': avg_throughput * 1e3,
+            'episodes': int(len(stats['episode_rewards']))
         }
         
         print("\n资源调度性能结果:")
         print("-" * 40)
         print(f"算法: PPO")
         print(f"平均奖励: {avg_reward:.3f}")
-        print(f"平均吞吐量: {avg_throughput:.2f}")
-        
-        if visualize:
-            stats_file = results_dir / 'training_stats.json'
-            with open(stats_file, 'w') as f:
-                json.dump(stats, f, indent=2)
-            print(f"训练统计已保存至: {stats_file}")
+        print(f"平均吞吐量: {avg_throughput*1e3:.2f} kbps")
         
         return results
     except Exception as e:
         print(f"训练过程中出错: {e}")
         return None
+
+
+class NumpyEncoder(json.JSONEncoder):
+    def default(self, obj):
+        import numpy as np
+        if isinstance(obj, (np.integer,)):
+            return int(obj)
+        if isinstance(obj, (np.floating,)):
+            return float(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return super().default(obj)
 
 
 def generate_comparison_report(results_dict: dict, results_dir: Path):
@@ -317,8 +308,10 @@ def generate_comparison_report(results_dict: dict, results_dir: Path):
         }
         
         print("\n信号检测性能:")
-        print(f"  准确率: {sd_results.get('accuracy', 'N/A'):.2%}")
-        print(f"  F1分数: {sd_results.get('f1_score', 'N/A'):.2%}")
+        acc = sd_results.get('accuracy')
+        f1 = sd_results.get('f1_score')
+        print(f"  准确率: {acc:.2%}" if acc is not None else "  准确率: N/A")
+        print(f"  F1分数: {f1:.2%}" if f1 is not None else "  F1分数: N/A")
     
     # 资源调度结果
     if results_dict.get('resource_scheduling'):
@@ -331,13 +324,15 @@ def generate_comparison_report(results_dict: dict, results_dir: Path):
         
         print("\n资源调度性能:")
         print(f"  算法: {rs_results.get('algorithm', 'N/A')}")
-        print(f"  平均奖励: {rs_results.get('avg_reward', 'N/A'):.3f}")
-        print(f"  平均吞吐量: {rs_results.get('avg_throughput', 'N/A'):.2f}")
+        avg_r = rs_results.get('avg_reward')
+        avg_tp = rs_results.get('avg_throughput')
+        print(f"  平均奖励: {avg_r:.3f}" if avg_r is not None else "  平均奖励: N/A")
+        print(f"  平均吞吐量: {avg_tp:.2f}" if avg_tp is not None else "  平均吞吐量: N/A")
     
     # 保存报告
     report_file = results_dir / 'comparison_report.json'
     with open(report_file, 'w', encoding='utf-8') as f:
-        json.dump(report, f, indent=2, ensure_ascii=False)
+        json.dump(report, f, indent=2, ensure_ascii=False, cls=NumpyEncoder)
     
     print(f"\n完整报告已保存至: {report_file}")
     
@@ -370,19 +365,19 @@ def run_demo_mode(args):
     ce_samples = min(args.num_samples, 1000)  # 演示模式限制样本数
     ce_epochs = min(args.epochs, 20)
     results_dict['channel_estimation'] = run_channel_estimation_demo(
-        ce_samples, ce_epochs, args.snr, args.visualize, use_gpu
+        ce_samples, ce_epochs, args.snr, use_gpu
     )
     
     # 2. 运行信号检测演示
     sd_samples = min(args.num_samples, 500)
     results_dict['signal_detection'] = run_signal_detection_demo(
-        sd_samples, args.visualize, use_gpu
+        sd_samples, use_gpu
     )
     
     # 3. 运行资源调度演示
-    rs_timesteps = min(args.num_samples * 10, 5000)  # 演示模式限制步数
+    rs_timesteps = min(args.num_samples * 10, 5000)
     results_dict['resource_scheduling'] = run_resource_scheduling_demo(
-        rs_timesteps, args.visualize, use_gpu
+        rs_timesteps, use_gpu
     )
     
     # 生成对比报告
@@ -415,15 +410,15 @@ def run_full_mode(args):
     
     # 使用完整参数
     results_dict['channel_estimation'] = run_channel_estimation_demo(
-        args.num_samples, args.epochs, args.snr, args.visualize, use_gpu
+        args.num_samples, args.epochs, args.snr, use_gpu
     )
     
     results_dict['signal_detection'] = run_signal_detection_demo(
-        args.num_samples, args.visualize, use_gpu
+        args.num_samples, use_gpu
     )
     
     results_dict['resource_scheduling'] = run_resource_scheduling_demo(
-        args.num_samples * 20, args.visualize, use_gpu
+        args.num_samples * 20, use_gpu
     )
     
     generate_comparison_report(results_dict, results_dir)
@@ -452,15 +447,15 @@ def run_single_module(mode: str, args):
     
     if mode == 'channel_estimation':
         results_dict['channel_estimation'] = run_channel_estimation_demo(
-            args.num_samples, args.epochs, args.snr, args.visualize, use_gpu
+            args.num_samples, args.epochs, args.snr, use_gpu
         )
     elif mode == 'signal_detection':
         results_dict['signal_detection'] = run_signal_detection_demo(
-            args.num_samples, args.visualize, use_gpu
+            args.num_samples, use_gpu
         )
     elif mode == 'resource_scheduling':
         results_dict['resource_scheduling'] = run_resource_scheduling_demo(
-            args.num_samples * 20, args.visualize, use_gpu
+            args.num_samples * 20, use_gpu
         )
     
     generate_comparison_report(results_dict, results_dir)
@@ -523,16 +518,9 @@ def main():
     # 系统参数
     parser.add_argument(
         '--gpu',
-        type=bool,
-        default=None,
-        help='是否使用GPU (default: 自动检测)'
-    )
-    
-    parser.add_argument(
-        '--visualize',
         action='store_true',
-        default=True,
-        help='生成可视化图表 (default: True)'
+        default=None,
+        help='强制使用GPU (default: 自动检测)'
     )
     
     # 解析参数
@@ -544,7 +532,6 @@ def main():
     print(f"  SNR: {args.snr} dB")
     print(f"  样本数: {args.num_samples}")
     print(f"  训练轮数: {args.epochs}")
-    print(f"  可视化: {args.visualize}")
     print()
     
     # 根据模式运行

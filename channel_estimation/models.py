@@ -4,7 +4,7 @@ AI信道估计模块 - 深度学习模型
 """
 
 import numpy as np
-from typing import Tuple, Optional
+from typing import Optional
 
 # 尝试导入深度学习框架
 try:
@@ -44,8 +44,6 @@ class TransformerChannelEstimator:
             self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
             print(f"使用设备: {self.device}")
             self.model = self._build_torch_model().to(self.device)
-            self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.learning_rate)
-            self.criterion = nn.MSELoss()
 
     def _build_torch_model(self) -> nn.Module:
         """构建PyTorch模型"""
@@ -95,7 +93,7 @@ class TransformerChannelEstimator:
                     torch.arange(0, d_model, 2).float() * (-np.log(10000.0) / d_model)
                 )
                 pe[:, 0::2] = torch.sin(position * div_term)
-                pe[:, 1::2] = torch.cos(position * div_term)
+                pe[:, 1::2] = torch.cos(position * div_term[:d_model // 2])
                 pe = pe.unsqueeze(0)
                 self.register_buffer("pe", pe)
 

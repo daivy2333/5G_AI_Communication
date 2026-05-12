@@ -4,9 +4,17 @@
 """
 
 import numpy as np
-from typing import Tuple, Dict, Optional, List
-import gym
-from gym import spaces
+from typing import Tuple, Dict, Optional
+import sys
+
+try:
+    import gymnasium as gym
+    from gymnasium import spaces
+    _USE_GYMNASIUM = True
+except ImportError:
+    import gym
+    from gym import spaces
+    _USE_GYMNASIUM = False
 
 
 class SchedulingEnvironment(gym.Env):
@@ -77,13 +85,15 @@ class SchedulingEnvironment(gym.Env):
         # 简化版: 只考虑资源块分配，功率均分
         self._action_type = "discrete"
 
-    def reset(self) -> np.ndarray:
+    def reset(self, *, seed=None, options=None) -> np.ndarray:
         """
         重置环境
 
         Returns:
             初始状态
         """
+        if seed is not None:
+            np.random.seed(seed)
         self.time_step = 0
 
         # 初始化信道增益(dB)
@@ -97,7 +107,8 @@ class SchedulingEnvironment(gym.Env):
         # 初始化传输统计
         self.transmitted_bits = np.zeros(self.num_users)
 
-        return self._get_observation()
+        obs = self._get_observation()
+        return (obs, {}) if _USE_GYMNASIUM else obs
 
     def _generate_channel_gains(self) -> np.ndarray:
         """生成信道增益"""
@@ -173,10 +184,10 @@ class SchedulingEnvironment(gym.Env):
 
         # 更新时间步
         self.time_step += 1
-        done = self.time_step >= self.time_slots
+        terminated = self.time_step >= self.time_slots
 
         # 获取下一个状态
-        if done:
+        if terminated:
             next_state = np.zeros(self.observation_space.shape, dtype=np.float32)
         else:
             next_state = self._get_observation()
@@ -190,7 +201,10 @@ class SchedulingEnvironment(gym.Env):
             **reward_info,
         }
 
-        return next_state, reward, done, info
+        if _USE_GYMNASIUM:
+            return next_state, reward, terminated, False, info
+        else:
+            return next_state, reward, terminated, info
 
     def _get_observation(self) -> np.ndarray:
         """获取当前状态"""
@@ -266,7 +280,8 @@ class SchedulingEnvironment(gym.Env):
         print(f"用户数: {self.num_users}")
         print(f"资源块数: {self.num_resource_blocks}")
         print(f"\n信道增益(dB):")
-        current_gains = self.channel_gains[self.time_step]
+        t = min(self.time_step, self.time_slots - 1)
+        current_gains = self.channel_gains[t]
         print(
             f"  范围: {10 * np.log10(np.min(current_gains)):.1f} ~ {10 * np.log10(np.max(current_gains)):.1f} dB"
         )
@@ -299,9 +314,15 @@ class MultiUserEnvironment(SchedulingEnvironment):
                 ["embb", "urllc", "mmtc"], size=self.num_users
             )
 
-    def step(self, action: np.ndarray) -> Tuple[np.ndarray, float, bool, Dict]:
+    def step(self, action: np.ndarray):
         """扩展的step函数"""
-        next_state, reward, done, info = super().step(action)
+        result = super().step(action)
+
+        if _USE_GYMNASIUM:
+            next_state, reward, terminated, truncated, info = result
+        else:
+            next_state, reward, terminated, info = result
+            truncated = False
 
         # 添加额外信息
         info["user_priority"] = self.user_priority
@@ -313,7 +334,10 @@ class MultiUserEnvironment(SchedulingEnvironment):
             reward -= qos_violation * 0.5
             info["qos_violation"] = qos_violation
 
-        return next_state, reward, done, info
+        if _USE_GYMNASIUM:
+            return next_state, reward, terminated, truncated, info
+        else:
+            return next_state, reward, terminated, info
 
     def _check_qos_violation(self, transmitted: np.ndarray) -> float:
         """检查QoS违约"""

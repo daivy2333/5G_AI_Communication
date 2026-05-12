@@ -12,10 +12,7 @@ project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-try:
-    from config import get_signal_config
-except ImportError:
-    from .config import get_signal_config
+from config import get_signal_config
 
 
 def generate_64qam_constellation() -> np.ndarray:
@@ -379,34 +376,6 @@ class SignalGenerator:
         return iq_batch, label_batch
 
 
-def plot_constellation(mod_type: str, ax=None):
-    """
-    绘制星座图
-
-    Args:
-        mod_type: 调制方式
-        ax: matplotlib轴对象
-    """
-    modulator = Modulator(mod_type)
-    constellation = modulator.constellation
-
-    if ax is None:
-        import matplotlib.pyplot as plt
-
-        fig, ax = plt.subplots(figsize=(8, 8))
-
-    ax.scatter(constellation.real, constellation.imag, s=50, c="blue", marker="o")
-    ax.axhline(y=0, color="k", linewidth=0.5)
-    ax.axvline(x=0, color="k", linewidth=0.5)
-    ax.grid(True, alpha=0.3)
-    ax.set_xlabel("同相(I)")
-    ax.set_ylabel("正交(Q)")
-    ax.set_title(f"{mod_type} 星座图")
-    ax.set_aspect("equal")
-
-    return ax
-
-
 def generate_training_data(
     num_samples_per_class: int = 1000, output_file: Optional[str] = None
 ) -> Tuple[np.ndarray, np.ndarray, List[str]]:
@@ -442,17 +411,10 @@ if __name__ == "__main__":
         symbols = modulator.modulate(bits)
         print(f"   {mod_type}: {len(bits)} 比特 -> {len(symbols)} 符号")
 
-    print("\n2. 星座图绘制:")
-    import matplotlib.pyplot as plt
-
-    fig, axes = plt.subplots(2, 2, figsize=(10, 10))
-    for ax, mod_type in zip(axes.flatten(), ["BPSK", "QPSK", "16QAM", "64QAM"]):
-        plot_constellation(mod_type, ax)
-
-    plt.tight_layout()
-    plt.savefig("signal_detection/results/constellations.png", dpi=150)
-    print("   星座图已保存至: signal_detection/results/constellations.png")
-    plt.close()
+    print("\n2. 星座图:")
+    for mod_type in ["BPSK", "QPSK", "16QAM", "64QAM"]:
+        modulator = Modulator(mod_type)
+        print(f"   {mod_type}: {len(modulator.constellation)} 星座点")
 
     print("\n3. 信号生成器测试:")
     generator = SignalGenerator()

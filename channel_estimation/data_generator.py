@@ -182,7 +182,7 @@ class ChannelDataGenerator:
         phases_flat = np.random.uniform(0, 2 * np.pi, total_paths)
         
         tap_indices = np.minimum(
-            (delays_flat * self.fft_size / self.fft_size).astype(int),
+            (delays_flat * self.fft_size).astype(int),
             self.channel_taps - 1
         )
         cir_values = amplitudes_flat * np.exp(1j * phases_flat)
@@ -326,10 +326,13 @@ class ChannelDataGenerator:
         # LMMSE估计
         correlation_matrix = np.eye(h_ls.shape[1]) * 0.5
         noise_variance = 1 / (snr_approx + 1e-10)
-        h_lmmse = np.linalg.solve(
-            correlation_matrix + noise_variance * np.eye(h_ls.shape[1]),
-            correlation_matrix @ h_ls.T,
-        ).T
+        try:
+            h_lmmse = np.linalg.solve(
+                correlation_matrix + noise_variance * np.eye(h_ls.shape[1]),
+                correlation_matrix @ h_ls.T,
+            ).T
+        except np.linalg.LinAlgError:
+            h_lmmse = h_mmse
 
         return {"LS": h_ls, "MMSE": h_mmse, "LMMSE": h_lmmse}
 

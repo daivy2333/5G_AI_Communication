@@ -31,12 +31,53 @@ except ImportError:
 try:
     from stable_baselines3 import PPO, DQN
     from stable_baselines3.common.vec_env import DummyVecEnv
+    from stable_baselines3.common.callbacks import BaseCallback
 
     HAS_SB3 = True
 except ImportError:
     HAS_SB3 = False
+    BaseCallback = object
 
 from .environment import SchedulingEnvironment, create_scheduling_environment
+
+
+class ProgressCallback(BaseCallback):
+    def __init__(self, total_timesteps: int, training_stats: dict, log_interval: int = 100, verbose: int = 0):
+        super().__init__(verbose)
+        self.total_timesteps = total_timesteps
+        self.training_stats = training_stats
+        self.log_interval = log_interval
+        self._last_log = 0
+        self._episode_reward = 0
+        self._episode_length = 0
+
+    def _on_step(self) -> bool:
+        self._episode_reward += self.locals["rewards"][0]
+        self._episode_length += 1
+
+        if self.locals["dones"][0]:
+            self.training_stats["episode_rewards"].append(self._episode_reward)
+            self.training_stats["episode_lengths"].append(self._episode_length)
+            info = self.locals["infos"][0]
+            self.training_stats["throughputs"].append(info.get("throughput", 0))
+            self.training_stats["fairness"].append(info.get("fairness", 0))
+            self._episode_reward = 0
+            self._episode_length = 0
+
+        if self.num_timesteps - self._last_log >= self.log_interval or self.num_timesteps == 1:
+            pct = self.num_timesteps / self.total_timesteps * 100
+            bar_len = 30
+            filled = int(bar_len * self.num_timesteps / self.total_timesteps)
+            bar = '█' * filled + '░' * (bar_len - filled)
+            ep_rewards = self.training_stats["episode_rewards"]
+            avg_r = np.mean(ep_rewards[-10:]) if ep_rewards else 0
+            avg_tp = np.mean(self.training_stats["throughputs"][-10:]) if self.training_stats["throughputs"] else 0
+            print(f"\r  训练进度: [{bar}] {pct:5.1f}% | 平均奖励: {avg_r:.4f} | 平均吞吐量: {avg_tp:.2f}", end='', flush=True)
+            self._last_log = self.num_timesteps
+        return True
+
+    def _on_training_end(self) -> None:
+        print()
 
 
 class RLSchedulerBase:
@@ -56,6 +97,8 @@ class RLSchedulerBase:
         """
         self.env_config = env_config
         self.agent_config = agent_config or {}
+
+        self.num_users = env_config.get("num_users", 20)
 
         # 创建环境
         self.env = create_scheduling_environment(
@@ -123,6 +166,7 @@ class PPOScheduler(RLSchedulerBase):
                 clip_range=self.clip_range,
                 ent_coef=self.entropy_coef,
                 verbose=0,
+                device='cpu',
             )
         elif HAS_TORCH:
             self._use_sb3 = False
@@ -193,6 +237,19 @@ class PPOScheduler(RLSchedulerBase):
         ).to(self.device)
         self.optimizer = optim.Adam(self.policy.parameters(), lr=self.learning_rate)
 
+    def _reset_env(self):
+        result = self.env.reset()
+        return result[0] if isinstance(result, tuple) else result
+
+    def _step_env(self, action):
+        result = self.env.step(action)
+        if len(result) == 5:
+            next_state, reward, terminated, truncated, info = result
+            done = terminated or truncated
+        else:
+            next_state, reward, done, info = result
+        return next_state, reward, done, info
+
     def train(self, total_timesteps: int, log_interval: int = 100):
         """
         训练PPO调度器
@@ -211,10 +268,10 @@ class PPOScheduler(RLSchedulerBase):
         print()
 
         if self._use_sb3 and HAS_SB3:
-            # 使用stable-baselines3
+            progress_cb = ProgressCallback(total_timesteps, self.training_stats, log_interval=max(log_interval, total_timesteps // 20))
             self.model.learn(
                 total_timesteps=total_timesteps,
-                callback=None,
+                callback=progress_cb,
                 log_interval=log_interval,
             )
             print("训练完成！")
@@ -224,12 +281,12 @@ class PPOScheduler(RLSchedulerBase):
 
     def _train_ppo(self, total_timesteps: int, log_interval: int):
         """自实现PPO训练"""
-        num_episodes = total_timesteps // self.env.time_slots
+        num_episodes = max(1, total_timesteps // self.env.time_slots)
         batch_size = self.agent_config.get("batch_size", 64)
         epochs = self.agent_config.get("ppo_epochs", 4)
 
         for episode in range(num_episodes):
-            state = self.env.reset()
+            state = self._reset_env()
             episode_reward = 0
             episode_info = []
 
@@ -252,7 +309,7 @@ class PPOScheduler(RLSchedulerBase):
                     if hasattr(action, "numpy")
                     else action
                 )
-                next_state, reward, done, info = self.env.step(action_np)
+                next_state, reward, done, info = self._step_env(action_np)
 
                 # 存储
                 states.append(state)
@@ -428,6 +485,7 @@ class DQNScheduler(RLSchedulerBase):
                 gamma=self.gamma,
                 exploration_fraction=0.1,
                 verbose=0,
+                device='cpu',
             )
         elif HAS_TORCH:
             self._use_sb3 = False
@@ -476,17 +534,19 @@ class DQNScheduler(RLSchedulerBase):
         print()
 
         if self._use_sb3 and HAS_SB3:
-            self.model.learn(total_timesteps=total_timesteps, log_interval=log_interval)
+            progress_cb = ProgressCallback(total_timesteps, self.training_stats, log_interval=max(log_interval, total_timesteps // 20))
+            self.model.learn(total_timesteps=total_timesteps, callback=progress_cb, log_interval=log_interval)
+            print("训练完成！")
         else:
             self._train_dqn(total_timesteps, log_interval)
 
     def _train_dqn(self, total_timesteps: int, log_interval: int):
         """自实现DQN训练"""
-        num_episodes = total_timesteps // self.env.time_slots
+        num_episodes = max(1, total_timesteps // self.env.time_slots)
         step_count = 0
 
         for episode in range(num_episodes):
-            state = self.env.reset()
+            state = self._reset_env()
             episode_reward = 0
 
             done = False
@@ -498,7 +558,7 @@ class DQNScheduler(RLSchedulerBase):
                     action = self.select_action(state)
 
                 # 执行
-                next_state, reward, done, info = self.env.step(action)
+                next_state, reward, done, info = self._step_env(action)
 
                 # 存储经验
                 self._store_transition(state, action, reward, next_state, done)
@@ -520,7 +580,9 @@ class DQNScheduler(RLSchedulerBase):
 
             # 记录统计
             self.training_stats["episode_rewards"].append(episode_reward)
+            self.training_stats["episode_lengths"].append(step_count)
             self.training_stats["throughputs"].append(info.get("throughput", 0))
+            self.training_stats["fairness"].append(info.get("fairness", 0))
 
             if (episode + 1) % log_interval == 0:
                 avg_reward = np.mean(
@@ -605,7 +667,7 @@ class DQNScheduler(RLSchedulerBase):
             return
 
         if self._use_sb3 and HAS_SB3:
-            self.model = DQN.load(str(path))
+            self.model = DQN.load(str(path), env=self.env)
         else:
             checkpoint = torch.load(path)
             self.q_network.load_state_dict(checkpoint["q_network"])

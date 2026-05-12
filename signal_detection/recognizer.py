@@ -8,13 +8,6 @@ from typing import Tuple, Optional, Dict, List
 from pathlib import Path
 import sys
 
-try:
-    import matplotlib.pyplot as plt
-
-    HAS_MATPLOTLIB = True
-except ImportError:
-    HAS_MATPLOTLIB = False
-
 # 尝试导入深度学习框架
 try:
     import torch
@@ -371,6 +364,8 @@ class CNNModulationRecognizer(ModulationRecognizerBase):
 
     def _knn_predict(self, features: np.ndarray, k: int = 5) -> np.ndarray:
         """K近邻预测"""
+        if not hasattr(self, 'stat_model') or self.stat_model is None:
+            raise RuntimeError("模型未训练，请先调用train()")
         train_features = self.stat_model["features"]
         train_labels = self.stat_model["labels"]
 
@@ -440,86 +435,6 @@ class CNNModulationRecognizer(ModulationRecognizerBase):
             results["accuracy_by_snr"] = snr_results
 
         return results
-
-
-def plot_confusion_matrix(self, results: Dict, save_path: Optional[str] = None):
-    """绘制混淆矩阵"""
-    if not HAS_MATPLOTLIB:
-        print("警告: matplotlib未安装，无法绘制混淆矩阵")
-        return
-
-    from sklearn.metrics import confusion_matrix
-    import seaborn as sns
-
-    cm = confusion_matrix(results["true_labels"], results["predictions"])
-    cm_normalized = cm.astype("float") / cm.sum(axis=1)[:, np.newaxis]
-
-    fig, ax = plt.subplots(figsize=(10, 8))
-    sns.heatmap(
-        cm_normalized,
-        annot=True,
-        fmt=".2%",
-        cmap="Blues",
-        xticklabels=self.modulation_types[: self.num_classes],
-        yticklabels=self.modulation_types[: self.num_classes],
-        ax=ax,
-    )
-    ax.set_xlabel("预测类别")
-    ax.set_ylabel("真实类别")
-    ax.set_title(f"调制方式识别混淆矩阵 (准确率: {results['overall_accuracy']:.2%})")
-
-    if save_path:
-        plt.savefig(save_path, dpi=150, bbox_inches="tight")
-        print(f"混淆矩阵已保存至: {save_path}")
-
-    plt.close()
-
-
-def plot_accuracy_by_snr(self, results: Dict, save_path: Optional[str] = None):
-    """绘制各SNR下的准确率"""
-    if not HAS_MATPLOTLIB:
-        print("警告: matplotlib未安装，无法绘制SNR性能图")
-        return
-
-    if "accuracy_by_snr" not in results:
-        print("警告: 没有按SNR分类的结果")
-        return
-
-    snr_ranges = list(results["accuracy_by_snr"].keys())
-    accuracies = list(results["accuracy_by_snr"].values())
-
-    fig, ax = plt.subplots(figsize=(10, 6))
-    bars = ax.bar(
-        snr_ranges, accuracies, color="#2196F3", edgecolor="white", linewidth=2
-    )
-
-    # 添加数值标签
-    for bar, acc in zip(bars, accuracies):
-        ax.text(
-            bar.get_x() + bar.get_width() / 2,
-            bar.get_height() + 0.02,
-            f"{acc:.1%}",
-            ha="center",
-            va="bottom",
-            fontsize=12,
-            fontweight="bold",
-        )
-
-    ax.set_xlabel("SNR范围 (dB)")
-    ax.set_ylabel("识别准确率")
-    ax.set_title("不同SNR条件下的调制识别准确率")
-    ax.set_ylim(0, 1.1)
-    ax.grid(True, alpha=0.3, axis="y")
-
-    # 添加基准线
-    ax.axhline(y=0.8, color="red", linestyle="--", linewidth=1, label="80%基准")
-    ax.legend()
-
-    if save_path:
-        plt.savefig(save_path, dpi=150, bbox_inches="tight")
-        print(f"SNR性能图已保存至: {save_path}")
-
-    plt.close()
 
 
 class RecognitionTrainer:
@@ -627,15 +542,6 @@ class RecognitionTrainer:
             for snr_range, acc in results["accuracy_by_snr"].items():
                 print(f"  {snr_range:10s}: {acc:.2%}")
 
-        # 绘制图表
-        print("\n生成可视化图表...")
-        self.recognizer.plot_confusion_matrix(
-            results, self.results_dir / "confusion_matrix.png"
-        )
-        self.recognizer.plot_accuracy_by_snr(
-            results, self.results_dir / "accuracy_by_snr.png"
-        )
-
         return results
 
     def _save_model(self):
@@ -651,6 +557,20 @@ class RecognitionTrainer:
                 self.results_dir / "modulation_recognizer.pth",
             )
             print(f"\n模型已保存至: {self.results_dir / 'modulation_recognizer.pth'}")
+
+    def _load_model(self, path=None):
+        """加载模型"""
+        if path is None:
+            path = self.results_dir / "modulation_recognizer.pth"
+        if not Path(path).exists():
+            print(f"警告: 模型文件不存在: {path}")
+            return
+        if HAS_TORCH:
+            checkpoint = torch.load(path, map_location=self.recognizer.device)
+            self.recognizer.model = self.recognizer._build_torch_model().to(self.recognizer.device)
+            self.recognizer.model.load_state_dict(checkpoint["model_state_dict"])
+            self.recognizer.history = checkpoint.get("history", {})
+            print(f"模型已加载: {path}")
 
     def run_full_training(self):
         """运行完整训练流程"""

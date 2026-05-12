@@ -24,7 +24,7 @@ from signal_detection.modulator import Modulator, SignalGenerator
 from utils.metrics import ChannelEstimationMetrics, ModulationRecognitionMetrics, SignalDetectionMetrics
 
 app = Flask(__name__, template_folder='templates')
-app.config['SECRET_KEY'] = '5g-ai-dashboard-2024'
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', os.urandom(24).hex())
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
 simulation_state = {
