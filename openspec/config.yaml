@@ -1,0 +1,29 @@
+schema: spec-driven
+
+context: |
+  Tech stack: Python 3.10+, PyTorch, Flask, NumPy, SciPy, Matplotlib, stable-baselines3
+  Language: Python 3.10
+  Testing: pytest（未配置，建议引入）
+  Formatting: ruff（未配置，建议引入）
+  Domain: 5G 无线通信链路 + AI 创新设计
+  项目基于软件仿真，专注 AI 算法在 5G 通信系统中的应用。
+  四大核心模块：AI 信道估计（Transformer）、信号检测与调制识别（CNN-LSTM）、智能资源调度（PPO 强化学习）、可视化仿真平台（Flask）。
+  所有产出物必须用简体中文撰写。技术术语如 API、REST 保持英文原样。
+
+rules:
+  proposal:
+    - 包含回滚方案
+    - 说明为什么做、做什么、不做什么
+    - 标注影响范围
+  specs:
+    - 使用 When/Then 格式描述行为
+    - 每个 spec.md 包含版本号和最后更新日期
+    - 变更时使用 Delta Specs（ADDED/MODIFIED/REMOVED）
+  design:
+    - 复杂流程需包含序列图
+    - 标注关键依赖关系
+    - 包含备选方案对比
+  tasks:
+    - 每个任务可独立验证
+    - 标注依赖关系
+    - 包含验收标准
