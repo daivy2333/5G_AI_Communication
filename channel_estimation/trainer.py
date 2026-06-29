@@ -43,6 +43,7 @@ class ChannelEstimationTrainer:
         self.batch_size = self.config.get('batch_size', 64)
         self.epochs = self.config.get('epochs', 100)
         self.learning_rate = self.config.get('learning_rate', 1e-4)
+        self.patience = self.config.get('patience', 10)
 
         self.num_train_samples = self.config.get('num_train_samples', 8000)
         self.num_val_samples = self.config.get('num_val_samples', 2000)
@@ -198,7 +199,6 @@ class ChannelEstimationTrainer:
         print(f"\n开始PyTorch训练，共{self.epochs}个epoch...")
 
         best_val_loss = float('inf')
-        patience = 10
         patience_counter = 0
 
         for epoch in range(self.epochs):
@@ -259,8 +259,8 @@ class ChannelEstimationTrainer:
                 self.best_state_dict = self.model.state_dict()
             else:
                 patience_counter += 1
-                if patience_counter >= patience:
-                    print(f"\n早停触发！连续{patience}个epoch未改善")
+                if patience_counter >= self.patience:
+                    print(f"\n早停触发！连续{self.patience}个epoch未改善")
                     break
 
         if self.best_state_dict is not None:
@@ -269,24 +269,26 @@ class ChannelEstimationTrainer:
         print(f"\n训练完成！最佳验证损失: {best_val_loss:.6f}")
 
     def _prepare_pytorch_input(self, data: dict) -> torch.Tensor:
-        """准备PyTorch输入张量"""
+        """准备PyTorch输入张量 — 用导频共轭消去调制，仅保留信道+噪声"""
         received = data['received']
         pilot = data['pilot']
 
-        received_real = received.real
-        received_imag = received.imag
+        corrected = received * np.conj(pilot)
+        corrected_real = corrected.real.astype(np.float32)
+        corrected_imag = corrected.imag.astype(np.float32)
 
         if self.model_type == 'transformer':
-            x = np.stack([received_real, received_imag], axis=-1)
+            x = np.stack([corrected_real, corrected_imag], axis=-1)
             return torch.from_numpy(x).float()
         elif self.model_type in ['cnn', 'hybrid']:
-            x = np.stack([received_real, received_imag], axis=1)
+            x = np.stack([corrected_real, corrected_imag], axis=1)
             return torch.from_numpy(x).float()
         else:
             features = np.concatenate([
-                received_real, received_imag,
-                np.abs(received), np.angle(received),
-                pilot.real, pilot.imag
+                corrected_real, corrected_imag,
+                np.abs(corrected).astype(np.float32),
+                np.angle(corrected).astype(np.float32),
+                pilot.real.astype(np.float32), pilot.imag.astype(np.float32),
             ], axis=1)
             return torch.from_numpy(features).float()
 

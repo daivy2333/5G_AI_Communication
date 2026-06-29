@@ -228,11 +228,10 @@ class ChannelDataGenerator:
             接收信号，形状与pilot_tx相同
         """
         # 信道频域响应(补零到导频长度)
-        h_freq = np.fft.fft(channel, axis=1)
         target_len = pilot_tx.shape[1]
-        h_freq_padded = np.zeros((h_freq.shape[0], target_len), dtype=complex)
-        h_freq_padded[:, :min(h_freq.shape[1], target_len)] = h_freq[:, :target_len]
-        h_freq = h_freq_padded
+        h_time_padded = np.zeros((channel.shape[0], target_len), dtype=complex)
+        h_time_padded[:, :self.channel_taps] = channel
+        h_freq = np.fft.fft(h_time_padded, axis=1)
 
         # 通过信道(逐样本相乘)
         received = pilot_tx * h_freq
@@ -272,11 +271,11 @@ class ChannelDataGenerator:
         channel_true = self.generate_channel_impulse_response(num_samples, model)
         snr_db = np.random.uniform(snr_range[0], snr_range[1], num_samples)
 
-        h_freq = np.fft.fft(channel_true, axis=1)
         target_len = pilot_tx.shape[1]
-        h_freq_padded = np.zeros((h_freq.shape[0], target_len), dtype=complex)
-        h_freq_padded[:, :min(h_freq.shape[1], target_len)] = h_freq[:, :target_len]
-        
+        h_time_padded = np.zeros((channel_true.shape[0], target_len), dtype=complex)
+        h_time_padded[:, :self.channel_taps] = channel_true
+        h_freq_padded = np.fft.fft(h_time_padded, axis=1)
+
         received_clean = pilot_tx * h_freq_padded
         
         signal_power = np.mean(np.abs(received_clean) ** 2, axis=1, keepdims=True)

@@ -223,7 +223,7 @@ class SignalGenerator:
             self.modulators[mod_type] = Modulator(mod_type)
 
     def generate_iq_samples(
-        self, mod_type: str, num_symbols: int, snr_db: float, seed: Optional[int] = None
+        self, mod_type: str, num_symbols: int, snr_db: float
     ) -> Tuple[np.ndarray, np.ndarray]:
         """
         生成IQ采样数据
@@ -232,14 +232,10 @@ class SignalGenerator:
             mod_type: 调制方式
             num_symbols: 符号数量
             snr_db: 信噪比(dB)
-            seed: 随机种子
 
         Returns:
             (IQ样本, 标签)
         """
-        if seed is not None:
-            np.random.seed(seed)
-
         modulator = self.modulators[mod_type]
         num_bits = num_symbols * modulator.bits_per_symbol
         bits = np.random.randint(0, 2, num_bits)
@@ -320,7 +316,7 @@ class SignalGenerator:
                     snr_db = np.clip(snr_db, self.snr_range[0], self.snr_range[1])
 
                 iq_samples, label = self.generate_iq_samples(
-                    mod_type, 128, snr_db, seed=idx
+                    mod_type, 128, snr_db
                 )
 
                 iq_data[idx, :, 0] = iq_samples.real

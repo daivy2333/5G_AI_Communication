@@ -25,6 +25,26 @@ except ImportError:
 from .modulator import SignalGenerator
 
 
+class FocalLoss(nn.Module):
+    def __init__(self, gamma=2.0, alpha=None, reduction='mean'):
+        super().__init__()
+        self.gamma = gamma
+        self.alpha = alpha
+        self.reduction = reduction
+
+    def forward(self, inputs, targets):
+        ce_loss = F.cross_entropy(inputs, targets, reduction='none')
+        pt = torch.exp(-ce_loss)
+        focal_loss = ((1 - pt) ** self.gamma) * ce_loss
+        if self.alpha is not None:
+            focal_loss = self.alpha[targets] * focal_loss
+        if self.reduction == 'mean':
+            return focal_loss.mean()
+        elif self.reduction == 'sum':
+            return focal_loss.sum()
+        return focal_loss
+
+
 class ModulationRecognizerBase:
     """调制识别器基类"""
 
@@ -137,6 +157,67 @@ class CNNModulationRecognizer(ModulationRecognizerBase):
             self.num_classes, self.cnn_filters, self.dense_units, self.dropout_rate
         )
 
+    def _build_grouped_model(self) -> nn.Module:
+        class GroupedCNNModulationNet(nn.Module):
+            def __init__(self, cnn_filters, dense_units, dropout_rate):
+                super().__init__()
+                self.conv1 = nn.Conv1d(2, cnn_filters[0], kernel_size=7, padding=3)
+                self.bn1 = nn.BatchNorm1d(cnn_filters[0])
+                self.conv2 = nn.Conv1d(cnn_filters[0], cnn_filters[1], kernel_size=5, padding=2)
+                self.bn2 = nn.BatchNorm1d(cnn_filters[1])
+                self.conv3 = nn.Conv1d(cnn_filters[1], cnn_filters[2], kernel_size=3, padding=1)
+                self.bn3 = nn.BatchNorm1d(cnn_filters[2])
+                self.pool = nn.MaxPool1d(2)
+                self.adaptive_pool = nn.AdaptiveAvgPool1d(32)
+
+                flat_dim = cnn_filters[2] * 32
+                self.head_psk = nn.Sequential(
+                    nn.Dropout(dropout_rate),
+                    nn.Linear(flat_dim, dense_units // 2),
+                    nn.ReLU(),
+                    nn.Dropout(dropout_rate),
+                    nn.Linear(dense_units // 2, dense_units // 4),
+                    nn.ReLU(),
+                    nn.Dropout(dropout_rate),
+                    nn.Linear(dense_units // 4, 2),
+                )
+                self.head_qam = nn.Sequential(
+                    nn.Dropout(dropout_rate),
+                    nn.Linear(flat_dim, dense_units),
+                    nn.ReLU(),
+                    nn.Dropout(dropout_rate),
+                    nn.Linear(dense_units, dense_units // 2),
+                    nn.ReLU(),
+                    nn.Dropout(dropout_rate),
+                    nn.Linear(dense_units // 2, 3),
+                )
+
+            def forward(self, x):
+                x = x.transpose(1, 2)
+                x = self.pool(F.relu(self.bn1(self.conv1(x))))
+                x = self.pool(F.relu(self.bn2(self.conv2(x))))
+                x = self.pool(F.relu(self.bn3(self.conv3(x))))
+                x = self.adaptive_pool(x)
+                x = x.view(x.size(0), -1)
+                return self.head_psk(x), self.head_qam(x)
+
+        return GroupedCNNModulationNet(self.cnn_filters, self.dense_units, self.dropout_rate)
+
+    def _grouped_loss(self, outputs, labels):
+        out_psk, out_qam = outputs
+        psk_mask = labels[:, 0] + labels[:, 1] > 0
+        qam_mask = labels[:, 2] + labels[:, 3] + labels[:, 4] > 0
+        loss = torch.tensor(0.0, device=out_psk.device)
+        if psk_mask.any():
+            loss += F.cross_entropy(out_psk[psk_mask], labels[psk_mask, :2].argmax(dim=1))
+        if qam_mask.any():
+            loss += F.cross_entropy(out_qam[qam_mask], labels[qam_mask, 2:].argmax(dim=1))
+        return loss
+
+    def _grouped_predict(self, x):
+        out_psk, out_qam = self.model(x)
+        return torch.cat([out_psk, out_qam], dim=1)
+
     def train(
         self,
         train_data: np.ndarray,
@@ -164,7 +245,12 @@ class CNNModulationRecognizer(ModulationRecognizerBase):
 
         if HAS_TORCH:
             # PyTorch训练
-            self.model = self._build_torch_model().to(self.device)
+            model_type = self.config.get("model_type", "single")
+            if model_type == "grouped":
+                self.model = self._build_grouped_model().to(self.device)
+                print("  使用分组多出口架构 (PSK head + QAM head)")
+            else:
+                self.model = self._build_torch_model().to(self.device)
 
             train_dataset = TensorDataset(
                 torch.FloatTensor(train_data), torch.FloatTensor(train_labels)
@@ -179,7 +265,12 @@ class CNNModulationRecognizer(ModulationRecognizerBase):
                 )
                 val_loader = DataLoader(val_dataset, batch_size=self.batch_size)
 
-            criterion = nn.CrossEntropyLoss()
+            loss_type = self.config.get("loss_type", "ce")
+            if loss_type == "focal":
+                gamma = self.config.get("focal_gamma", 2.0)
+                criterion = FocalLoss(gamma=gamma)
+            else:
+                criterion = nn.CrossEntropyLoss()
             optimizer = optim.Adam(self.model.parameters(), lr=self.learning_rate)
             scheduler = optim.lr_scheduler.ReduceLROnPlateau(
                 optimizer, mode="min", factor=0.5, patience=5
@@ -202,13 +293,19 @@ class CNNModulationRecognizer(ModulationRecognizerBase):
                     batch_labels = batch_labels.to(self.device)
 
                     optimizer.zero_grad()
-                    outputs = self.model(batch_data)
-                    loss = criterion(outputs, torch.argmax(batch_labels, dim=1))
+                    if model_type == "grouped":
+                        outputs = self.model(batch_data)
+                        loss = self._grouped_loss(outputs, batch_labels)
+                        combined = self._grouped_predict(batch_data)
+                    else:
+                        outputs = self.model(batch_data)
+                        loss = criterion(outputs, torch.argmax(batch_labels, dim=1))
+                        combined = outputs
                     loss.backward()
                     optimizer.step()
 
                     train_loss += loss.item()
-                    _, predicted = outputs.max(1)
+                    _, predicted = combined.max(1)
                     train_total += batch_labels.size(0)
                     train_correct += (
                         predicted.eq(torch.argmax(batch_labels, dim=1)).sum().item()
@@ -234,11 +331,17 @@ class CNNModulationRecognizer(ModulationRecognizerBase):
                             batch_data = batch_data.to(self.device)
                             batch_labels = batch_labels.to(self.device)
 
-                            outputs = self.model(batch_data)
-                            loss = criterion(outputs, torch.argmax(batch_labels, dim=1))
+                            if model_type == "grouped":
+                                outputs = self.model(batch_data)
+                                loss = self._grouped_loss(outputs, batch_labels)
+                                combined = self._grouped_predict(batch_data)
+                            else:
+                                outputs = self.model(batch_data)
+                                loss = criterion(outputs, torch.argmax(batch_labels, dim=1))
+                                combined = outputs
 
                             val_loss += loss.item()
-                            _, predicted = outputs.max(1)
+                            _, predicted = combined.max(1)
                             val_total += batch_labels.size(0)
                             val_correct += (
                                 predicted.eq(torch.argmax(batch_labels, dim=1))
@@ -348,8 +451,11 @@ class CNNModulationRecognizer(ModulationRecognizerBase):
             self.model.eval()
             with torch.no_grad():
                 inputs = torch.FloatTensor(signals).to(self.device)
-                outputs = self.model(inputs)
-                probs = F.softmax(outputs, dim=1).cpu().numpy()
+                if self.config.get("model_type") == "grouped":
+                    combined = self._grouped_predict(inputs)
+                else:
+                    combined = self.model(inputs)
+                probs = F.softmax(combined, dim=1).cpu().numpy()
                 predictions = np.argmax(probs, axis=1)
             return probs, predictions
 
@@ -476,12 +582,15 @@ class RecognitionTrainer:
             num_samples_per_class=num_samples_per_class
         )
 
-        # 划分训练集和验证集
+        # 划分训练集和验证集（先打乱）
+        indices = np.random.permutation(len(train_data))
         split_idx = int(len(train_data) * 0.8)
-        val_data = train_data[split_idx:]
-        val_labels = train_labels[split_idx:]
-        train_data = train_data[:split_idx]
-        train_labels = train_labels[:split_idx]
+        train_idx = indices[:split_idx]
+        val_idx = indices[split_idx:]
+        val_data = train_data[val_idx]
+        val_labels = train_labels[val_idx]
+        train_data = train_data[train_idx]
+        train_labels = train_labels[train_idx]
 
         print(f"\n训练集大小: {len(train_data)}")
         print(f"验证集大小: {len(val_data)}")

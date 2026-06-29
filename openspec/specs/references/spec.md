@@ -65,3 +65,13 @@
 | 技术方案 | docs/SOLUTION.md | 项目概述、算法设计、系统架构 |
 | 算法架构 | docs/ALGORITHMS.md | Mermaid 流程图、数据流设计 |
 | 性能参数 | docs/PERFORMANCE.md | 测试结果、NMSE 对比、吞吐量 |
+
+## 项目分析文档
+
+<!-- 由 openspec-explorer 写入，由 openspec-assistant 日常维护，由 openspec-archivist 周期清理。 -->
+<!-- 添加时格式: R编号 | 主题 | 路径 | 内容概要 | -->
+
+<!-- R01 --> | 资源调度 PPO 训练验证 | .claude/analysis/resource-scheduling-ppo-validation.md | T06 执行链路、输出验收、stable-baselines3 与自实现 PPO 风险 |
+<!-- R02 --> | 调制识别高阶 QAM 提升 | .claude/analysis/modulation-recognition-qam-improvement.md | T07 64QAM/256QAM 低准确率原因、数据生成链路、改进实验方向 |
+<!-- R03 --> | 信道估计 100 epoch 收敛 | .claude/analysis/channel-estimation-100epoch-convergence.md | T09 训练链路、早停机制、100 epoch 验收口径和优化实验 |
+<!-- R04 --> | 任务 6/7/9 分析文档体系 | .claude/analysis/ | T06/T07/T09 聚焦分析，共 3 份文档 |

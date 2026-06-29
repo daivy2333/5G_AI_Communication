@@ -446,7 +446,7 @@ class DetectorTrainer:
             snr_db = np.random.uniform(-10, 30)
 
             iq_samples, _ = self.signal_generator.generate_iq_samples(
-                mod_type, 128, snr_db, seed=i
+                mod_type, 128, snr_db
             )
 
             data_list.append(np.stack([iq_samples.real, iq_samples.imag], axis=1))
