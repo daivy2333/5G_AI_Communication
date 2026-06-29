@@ -153,3 +153,11 @@
 ### <!-- L12 --> 最终方案: FC=512 + 过采样
 
 **方案**: FC 容量翻倍 (256→512) + 256QAM×2 过采样 + 64QAM×1.5 过采样。Overall 76.91%, 256QAM 82.8%, 64QAM 52.5%。
+
+### <!-- L13 --> 根目录是论文工程，OpenSpec 状态在 5G_AI_Communication 子项目
+
+**发现**: 当前仓库根目录包含 `conference_101719.tex`、章节 `.tex`、`IEEEtran.cls`、`references.bib` 等论文源文件；真正的 Python 实验项目、`.claude/` 状态和 `openspec/specs/` 文档都在 `5G_AI_Communication/` 下。
+
+**使用方式**: 修改论文内容时从根目录的 `conference_101719.tex` 和章节文件入手；修改实验代码或项目记忆时进入 `5G_AI_Communication/`，优先读取 `CLAUDE.md`、`.claude/docs/SNAPSHOT.md` 和 `openspec/specs/*/spec.md`。
+
+**预防**: 不要把根目录仓库名误判为仍是空 LaTeX 模板；也不要把子项目的 OpenSpec 文档写到根目录。

@@ -1,0 +1,5 @@
+algorithm,nmse_dB
+AI-ChannelNet,-20.4215
+LMMSE,-0.6973
+MMSE,-0.2595
+LS,0.237

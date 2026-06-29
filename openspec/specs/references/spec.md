@@ -75,3 +75,4 @@
 <!-- R02 --> | 调制识别高阶 QAM 提升 | .claude/analysis/modulation-recognition-qam-improvement.md | T07 64QAM/256QAM 低准确率原因、数据生成链路、改进实验方向 |
 <!-- R03 --> | 信道估计 100 epoch 收敛 | .claude/analysis/channel-estimation-100epoch-convergence.md | T09 训练链路、早停机制、100 epoch 验收口径和优化实验 |
 <!-- R04 --> | 任务 6/7/9 分析文档体系 | .claude/analysis/ | T06/T07/T09 聚焦分析，共 3 份文档 |
+<!-- R05 --> | 项目全局概览 | .claude/analysis/project-overview.md | 根 LaTeX 论文工程与 5G_AI_Communication Python 实验工程的结构、执行流、模块边界和证据来源 |

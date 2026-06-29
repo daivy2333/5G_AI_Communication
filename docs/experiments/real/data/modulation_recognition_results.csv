@@ -1,0 +1,7 @@
+metric,value
+overall_accuracy,0.7691
+class_BPSK,0.9893
+class_QPSK,0.8273
+class_16QAM,0.6753
+class_64QAM,0.5253
+class_256QAM,0.828
