@@ -80,7 +80,7 @@ graph LR
 | Transformer层数 | 4层 | 深度学习网络层数 |
 | 注意力头数 | 8头 | 多头自注意力机制 |
 | 嵌入维度 | 128 | 特征空间维度 |
-| 激活函数 | GELU | 平滑激活函数 |
+| 激活函数 | Transformer默认前馈激活 | 与当前PyTorch实验实现保持一致 |
 | Dropout率 | 0.1 | 防止过拟合 |
 
 ### 2.2 数据处理流程
@@ -133,7 +133,7 @@ flowchart TB
         
         subgraph FFNBlock["前馈网络"]
             F1[线性层1<br/>d→4d]
-            F2[GELU激活]
+            F2[前馈激活]
             F3[线性层2<br/>4d→d]
         end
         

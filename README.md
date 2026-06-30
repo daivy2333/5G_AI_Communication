@@ -117,7 +117,7 @@ python3 -m visualization.dashboard
 
 基于Transformer架构的端到端信道估计网络：
 
-- **网络**: 4层Transformer，8头注意力，GELU激活
+- **网络**: 4层Transformer，8头注意力，Transformer前馈激活
 - **输入**: 导频信号 + 接收信号
 - **输出**: 信道估计矩阵
 - **优势**: 高速移动场景优于传统LS/MMSE
