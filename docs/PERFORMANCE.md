@@ -1,9 +1,9 @@
 <!-- generated-by: gsd-doc-writer -->
 # 性能参数文档
 
-**版本**: V2.0
-**更新日期**: 2026-06-29
-**数据来源**: 真实 PyTorch 训练（CUDA, 50 epochs, 8000 训练样本）
+**版本**: V2.1
+**更新日期**: 2026-06-30
+**数据来源**: `docs/experiments/real/summary.json` 与 `docs/experiments/real/data/*.csv`，真实 PyTorch 训练（CUDA, 50 epochs, 8000 信道估计训练样本）
 
 ---
 
@@ -22,25 +22,27 @@
 
 ### 1.1 整体 NMSE 对比（真实训练结果）
 
-训练条件：Transformer (4层, 8头, d=128), 8000 训练样本, 50 epochs, 5G UMa 信道, SNR ∈ [−10, 30] dB。
+训练条件：Transformer (4层, 8头, d=128), 8000 训练样本, 50 epochs, 5G UMa 信道, SNR ∈ [−10, 30] dB。结果来自 `docs/experiments/real/summary.json` 的 `channel_estimation.evaluation` 字段。
 
 | 方法 | 整体 NMSE (dB) | 说明 |
 |------|---------------|------|
 | LMMSE | -0.70 | 线性最小均方误差估计 |
 | MMSE | -0.26 | 最小均方误差估计 |
 | LS | +0.24 | 最小二乘估计 |
-| **AI-ChannelNet** | **-20.49** | Transformer AI 估计 |
+| **AI-ChannelNet** | **-20.42** | Transformer AI 估计 |
 
-> AI-ChannelNet 比 LMMSE 提升 **19.8 dB**，远超设计目标（≥7 dB 提升）。
+> AI-ChannelNet 比 LMMSE 提升 **19.7 dB**，超过设计目标（≥7 dB 提升）。
 
 ### 1.2 各 SNR 区间 NMSE（真实训练结果）
 
+分段结果来自 `docs/experiments/real/data/channel_estimation_by_snr.csv`。
+
 | SNR 区间 (dB) | LS (dB) | MMSE (dB) | LMMSE (dB) | AI-ChannelNet (dB) |
 |--------------|---------|-----------|------------|-------------------|
-| [-10, 0] | +1.10 | +0.29 | +0.05 | **-0.50** |
-| [0, 10] | -0.28 | -0.34 | -0.30 | **-5.80** |
-| [10, 20] | -0.47 | -0.42 | -0.34 | **-15.20** |
-| [20, 30] | -0.49 | -0.42 | -0.34 | **-23.10** |
+| [-10, 0] | +5.62 | +5.11 | +4.64 | **-15.38** |
+| [0, 10] | -4.04 | -4.51 | -4.87 | **-24.63** |
+| [10, 20] | -14.57 | -14.65 | -14.03 | **-28.35** |
+| [20, 30] | -23.35 | -21.30 | -18.11 | **-28.92** |
 
 ### 1.3 信道估计配置参数
 
@@ -65,18 +67,18 @@
 
 ### 2.1 BPSK 比特检测（真实训练结果）
 
-训练条件：CNN-LSTM (64→128→256 filters, Bi-LSTM 128), 50 epochs, 5000 训练样本。
+训练条件：CNN-LSTM (64→128→256 filters, Bi-LSTM 128), 50 epochs, 5000 训练样本。评估结果来自 `docs/experiments/real/summary.json` 与 `docs/experiments/real/data/signal_detection_results.csv`。
 
 | 指标 | 数值 | 说明 |
 |------|------|------|
-| 准确率 | **98.16%** | (TP + TN) / Total |
-| 精确率 | 99.83% | TP / (TP + FP) |
-| 召回率 | 96.48% | TP / (TP + FN) |
-| F1 分数 | **98.13%** | 2·P·R / (P + R) |
+| 准确率 | **98.08%** | (TP + TN) / Total |
+| 精确率 | 100.00% | TP / (TP + FP) |
+| 召回率 | 96.16% | TP / (TP + FN) |
+| F1 分数 | **98.04%** | 2·P·R / (P + R) |
 
 ### 2.2 5 类调制识别（真实训练结果）
 
-训练条件：CNN (k=7/5/3, 64→128→256 filters), 50 epochs, 1000/类训练样本。
+训练条件：CNN (k=7/5/3, 64→128→256 filters), 50 epochs, 基础 1000/类训练样本，并使用 256QAM×2 与 64QAM×1.5 过采样。评估结果来自 `docs/experiments/real/data/modulation_recognition_results.csv`。
 
 | 调制方式 | 准确率 |
 |----------|--------|
@@ -105,15 +107,15 @@
 
 ## 3. 资源调度性能
 
-## 3. 资源调度性能
-
 ### 3.1 PPO 算法训练结果（真实训练）
+
+结果来自 `docs/experiments/real/summary.json` 的 `resource_scheduling` 字段与 `docs/experiments/real/data/resource_scheduling_reward.csv`。
 
 | 指标 | 数值 | 说明 |
 |------|------|------|
 | 算法 | PPO | 近端策略优化 (stable-baselines3) |
-| 平均奖励 (last 20) | **2.39** | 训练收敛后 |
-| 收敛公平性 | **0.87** | Jain Fairness Index |
+| 平均奖励 (last 20) | **2.393** | 训练收敛后 |
+| 最终公平性 | **0.8717** | Jain Fairness Index |
 | 折扣因子 (γ) | 0.99 | 长期收益权重 |
 | GAE 参数 (λ) | 0.95 | 优势函数估计 |
 | 裁剪范围 (ε) | 0.2 | 策略更新限制 |
@@ -147,7 +149,7 @@
 | AI 信道估计 | NMSE | **-20.42 dB** | LMMSE: -0.70 dB（提升 19.7 dB） |
 | 信号检测 | F1 Score | **98.04%** | — |
 | 调制识别 | Overall Acc | **76.91%** | BPSK 98.9%, 256QAM 82.8% |
-| 资源调度 | Avg Reward | **2.39** | Jain Fairness 0.87 |
+| 资源调度 | Avg Reward | **2.393** | Jain Fairness 0.8717 |
 
 ### 4.2 系统参数配置
 
@@ -183,7 +185,6 @@
 | 信号检测样本 | 5,000 | 训练集 |
 | 调制识别样本 | 1,000/类 | 5 类×1000 |
 | SNR 范围 | -10 ~ 30 dB | 信噪比范围 |
-| 随机种子 | 42 | 可复现
 | 多普勒频率 | 100 Hz | 信道时变特性 |
 | 时延扩展 | 300 ns | 多径时延 |
 | 随机种子 | 42 | 可复现性 |
